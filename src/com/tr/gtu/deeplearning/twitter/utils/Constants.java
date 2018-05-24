@@ -13,12 +13,6 @@ import java.util.Locale;
  */
 public class Constants
 {
-    /*
-    public static String consumerKeyStr = "RxWUBvKLr8C1OedhhwIzE1Sch";
-    public static String consumerSecretStr = "bHvVaL9E7rB2ufHAzy9wwCwpP2s3XDM7GBA8sRCWs9vKMRbIGk";
-    public static String accessTokenStr = "84376935-uQNIetXzH5khLaiMpHzNPE8GizHQBOdl07EHxSwe7";
-    public static String accessTokenSecretStr = "1mJNjEKgDYg6206IG9CA4UNdUZu0vxoPgHLWPrCyQlDM2";
-    */
     public static String tweetTableName = "tweets";
     public static String vectorTableName = "usertweetvectors";
 
