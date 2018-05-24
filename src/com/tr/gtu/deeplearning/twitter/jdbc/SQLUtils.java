@@ -9,8 +9,7 @@ import org.apache.log4j.Logger;
 
 import java.io.PrintWriter;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * Created by TugbaYAGIZ on 24.05.2018.
@@ -38,14 +37,14 @@ public class SQLUtils
     {
         try
         {
-            String sql = "SELECT DISTINCT UserID FROM " + Constants.tweetTableName;
+            String sql = "SELECT DISTINCT User FROM " + Constants.tweetTableName;
             PreparedStatement stmt = conn.prepareStatement(sql);
             ResultSet rs = stmt.executeQuery();
 
             while(rs.next())
             {
-                String userID = rs.getString(1);
-                User newTwitterUser = new User(userID);
+                String user = rs.getString(1);
+                User newTwitterUser = new User(user);
                 Constants.allUsers.add(newTwitterUser);
             }
 
@@ -64,23 +63,21 @@ public class SQLUtils
 
         try
         {
-            String sql = "SELECT * FROM  " + Constants.tweetTableName + " WHERE UserID = ?";
+            String sql = "SELECT id, user, date, tweet, hashtags FROM  " + Constants.tweetTableName
+                    + " WHERE User = ?";
             PreparedStatement stmt = conn.prepareStatement(sql);
             stmt.setString(1, userID);
             ResultSet rs = stmt.executeQuery();
 
             while(rs.next())
             {
-                String screenName = rs.getString("SentByScreenName");
-                String text = rs.getString("Text");
-                String source = rs.getString("Source");
-                String createdAt = rs.getString("DateCreatedAt");
-                String country = rs.getString("PlaceCountry");
-                int retweetCount = Integer.valueOf(rs.getString("RetweetCount"));
-                boolean isRetweet = (rs.getString("IsRetweet").equals("1")) ? true : false;
-                String id = rs.getString("ID");
+                String id = rs.getString(1);
+                String user = rs.getString(2);
+                Timestamp date = rs.getTimestamp(3);
+                String tweet = rs.getString(4);
+                String hashtags = rs.getString(5);
 
-                Tweet newTweet = new Tweet(screenName, text, source, createdAt, country, retweetCount, isRetweet, id);
+                Tweet newTweet = new Tweet(id, user, date, tweet, hashtags);
                 tweetList.add(newTweet);
             }
 
@@ -95,20 +92,20 @@ public class SQLUtils
         return tweetList;
     }
 
-    public String getSingleTweetByID (String tweetID)
+    public String getTweetByID (String id)
     {
         String tweet = "";
 
         try
         {
-            String sql = "SELECT Text FROM  " + Constants.tweetTableName + " WHERE ID = ?";
+            String sql = "SELECT tweet FROM  " + Constants.tweetTableName + " WHERE id = ?";
             PreparedStatement stmt = conn.prepareStatement(sql);
-            stmt.setString(1, tweetID);
+            stmt.setString(1, id);
             ResultSet rs = stmt.executeQuery();
 
             while(rs.next())
             {
-                tweet = rs.getString("Text");
+                tweet = rs.getString(1);
             }
 
             rs.close();
@@ -116,13 +113,13 @@ public class SQLUtils
         }
         catch (Exception e)
         {
-            log.error("An error occurred while getting a single Tweet by ID...", e);
+            log.error("An error occurred...", e);
         }
 
         return tweet;
     }
 
-    public List<String> writeTweetsToFile(String filePath, boolean doPreprocessing)
+    public List<String> writeTweetsToFile(String filePath, boolean ignoreRetweets)
     {
         log.debug("Tweets will be written to the file: " + filePath);
         List<String> labelList = new ArrayList<String>();
@@ -130,48 +127,38 @@ public class SQLUtils
         try
         {
             PrintWriter writer = new PrintWriter(filePath, "UTF-8");
-            PrintWriter writerHashtag = new PrintWriter("C:\\Users\\TY\\Desktop\\tweetFile_hashtag.csv", "UTF-8");
-            String sql = "SELECT Text, ID, Username FROM " + Constants.tweetTableName + " WHERE text not like 'RT%' ORDER BY ID LIMIT " + Constants.tweetCountLimit;
+            String sql = "SELECT tweet, id, user FROM " + Constants.tweetTableName
+                    + (ignoreRetweets ? " WHERE tweet not like 'RT%'" : "")
+                    + " ORDER BY ID LIMIT " + Constants.tweetCountLimit;
+
             PreparedStatement stmt = conn.prepareStatement(sql);
             ResultSet rs = stmt.executeQuery();
 
             while(rs.next())
             {
-                String tweetStr = rs.getString(1);
-                String tweetId = rs.getString(2);
-                String userId = rs.getString(3);
+                String tweet = rs.getString(1);
+                String id = rs.getString(2);
+                String user = rs.getString(3);
 
-                labelList.add("TWEET_" + userId + "_" + tweetId);
-                tweetStr = tweetStr.replace("\n", " ").replace("\r", " ");
-
-                List<String> hashtags = commonUtils.retrieveHashtags(tweetStr);
-
-                if(doPreprocessing)
-                {
-                    tweetStr = commonUtils.preprocessTweet(tweetStr);
-                }
-
-                writer.println(tweetStr);
-                writerHashtag.println(String.join(";", hashtags));
+                labelList.add("TWEET_" + user + "_" + id);
+                writer.println(tweet);
             }
 
             writer.close();
             writer.flush();
-            writerHashtag.close();
-            writerHashtag.flush();
             rs.close();
             stmt.close();
             log.debug("Writing Tweets to file is finished.");
         }
         catch (Exception e)
         {
-            log.error("An error occurred while writing Tweets to file...", e);
+            log.error("An error occurred...", e);
         }
 
         return labelList;
     }
 
-    public List<String> insertTweetVectors(String userID, String tweetID, String method, String vectorStr)
+    public List<String> insertTweetVectors(String id, String method, String vectorStr)
     {
         List<String> labelList = new ArrayList<String>();
 
@@ -183,7 +170,7 @@ public class SQLUtils
             PreparedStatement stmt = conn.prepareStatement(sql);
             stmt.setString(1, method);
             stmt.setString(2, vectorStr);
-            stmt.setString(3, tweetID);
+            stmt.setString(3, id);
             ResultSet rs = stmt.executeQuery();
 
             rs.close();
@@ -227,13 +214,6 @@ public class SQLUtils
         return affectedRows;
     }
 
-
-
-
-
-
-
-
     /*
      *   Usage: SELECT ID, User, Date, Text FROM TABLE
      *   Preprocess Text --> links, @accounts, punctuation(except #) removed from text
@@ -256,7 +236,7 @@ public class SQLUtils
                 String tweet = rs.getString(4);
 
                 List<String> hashtags = commonUtils.retrieveHashtags(tweet);
-                tweet = preprocessTweet(tweet);
+                tweet = commonUtils.preprocessTweet(tweet);
                 String hashtagStr = (hashtags != null && !hashtags.isEmpty()) ? String.join(";", hashtags) : "";
                 Timestamp date = new Timestamp(Constants.csvDateFormatTweet.parse(dateStr).getTime());
 
@@ -281,42 +261,6 @@ public class SQLUtils
             log.error("An error occurred while writing Tweets to file...", e);
         }
     }
-
-
-    public String preprocessTweet(String tweet)
-    {
-        String preprocessedTweet = "";
-        tweet = tweet.replace("\n", " ").replace("\r", " ");
-        String [] tweetArray = tweet.split(" ");
-
-        for(int i = 0; i < tweetArray.length; i++)
-        {
-            if(!tweetArray[i].startsWith("@")  && !tweetArray[i].startsWith("http") )
-            {
-                preprocessedTweet += tweetArray[i].replaceAll("[\\p{Punct}&&[^#]]", "") + ((i == tweetArray.length - 1) ? "" : " ");
-            }
-        }
-
-        return preprocessedTweet;
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

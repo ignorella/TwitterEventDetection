@@ -2,13 +2,22 @@ package com.tr.gtu.deeplearning.twitter.utils;
 
 import org.apache.commons.lang.time.StopWatch;
 import org.apache.log4j.Logger;
+import org.datavec.api.util.ClassPathResource;
 import org.deeplearning4j.clustering.cluster.ClusterSet;
 import org.deeplearning4j.clustering.cluster.Point;
 import org.deeplearning4j.clustering.kmeans.KMeansClustering;
+import org.deeplearning4j.models.embeddings.WeightLookupTable;
+import org.deeplearning4j.models.embeddings.inmemory.InMemoryLookupTable;
+import org.deeplearning4j.models.embeddings.learning.impl.elements.SkipGram;
+import org.deeplearning4j.models.embeddings.loader.VectorsConfiguration;
 import org.deeplearning4j.models.embeddings.loader.WordVectorSerializer;
 import org.deeplearning4j.models.paragraphvectors.ParagraphVectors;
+import org.deeplearning4j.models.sequencevectors.SequenceVectors;
+import org.deeplearning4j.models.sequencevectors.iterators.AbstractSequenceIterator;
+import org.deeplearning4j.models.sequencevectors.transformers.impl.SentenceTransformer;
 import org.deeplearning4j.models.word2vec.VocabWord;
 import org.deeplearning4j.models.word2vec.Word2Vec;
+import org.deeplearning4j.models.word2vec.wordstore.VocabConstructor;
 import org.deeplearning4j.models.word2vec.wordstore.inmemory.AbstractCache;
 import org.deeplearning4j.text.documentiterator.LabelsSource;
 import org.deeplearning4j.text.sentenceiterator.BasicLineIterator;
@@ -53,19 +62,20 @@ public class DeepLearningUtils
             LabelsSource source = new LabelsSource("TWEET_");
 
             vec = new ParagraphVectors.Builder()
-                    .minWordFrequency(DeepLearningCostants.MIN_WORD_FREQUENCY)
-                    .iterations(DeepLearningCostants.ITERATION_COUNT)
-                    .epochs(DeepLearningCostants.EPOCHS)
-                    .layerSize(DeepLearningCostants.LAYER_SIZE)
-                    .learningRate(DeepLearningCostants.LEARNING_RATE)
+                    .minWordFrequency(DeepLearningConstants.MIN_WORD_FREQUENCY)
+                    .iterations(DeepLearningConstants.ITERATION_COUNT)
+                    .epochs(DeepLearningConstants.EPOCHS)
+                    .layerSize(DeepLearningConstants.LAYER_SIZE)
+                    .learningRate(DeepLearningConstants.LEARNING_RATE)
                     //.labelsSource(source)
+                    .batchSize(DeepLearningConstants.BATCH_SIZE)
                     .labels(Constants.labelList)
-                    .windowSize(DeepLearningCostants.WINDOW_SIZE)
+                    .windowSize(DeepLearningConstants.WINDOW_SIZE)
                     .iterate(iterator)
-                    .trainWordVectors(false)
+                    .trainWordVectors(DeepLearningConstants.TRAIN_WORD_VECTORS)
                     .vocabCache(cache)
                     .tokenizerFactory(t)
-                    .sampling(DeepLearningCostants.SAMPLING)
+                    .sampling(DeepLearningConstants.SAMPLING)
                     .build();
 
             vec.fit();
@@ -101,16 +111,17 @@ public class DeepLearningUtils
               But if you have LabelAwareIterator ready, you can can provide it, for your in-house labels
         */
             vec = new Word2Vec.Builder()
-                    .minWordFrequency(DeepLearningCostants.MIN_WORD_FREQUENCY)
-                    .iterations(DeepLearningCostants.ITERATION_COUNT)
-                    .epochs(DeepLearningCostants.EPOCHS)
-                    .layerSize(DeepLearningCostants.LAYER_SIZE)
-                    .learningRate(DeepLearningCostants.LEARNING_RATE)
-                    .windowSize(DeepLearningCostants.WINDOW_SIZE)
+                    .minWordFrequency(DeepLearningConstants.MIN_WORD_FREQUENCY)
+                    .iterations(DeepLearningConstants.ITERATION_COUNT)
+                    .epochs(DeepLearningConstants.EPOCHS)
+                    .layerSize(DeepLearningConstants.LAYER_SIZE)
+                    .learningRate(DeepLearningConstants.LEARNING_RATE)
+                    .windowSize(DeepLearningConstants.WINDOW_SIZE)
+                    .batchSize(DeepLearningConstants.BATCH_SIZE)
                     .iterate(iterator)
                     .vocabCache(cache)
                     .tokenizerFactory(t)
-                    .sampling(DeepLearningCostants.SAMPLING)
+                    .sampling(DeepLearningConstants.SAMPLING)
                     .build();
 
             vec.fit();
@@ -127,8 +138,8 @@ public class DeepLearningUtils
     public ClusterSet getKMeansClusterSet(Word2Vec vector)
     {
         //1. create a kmeanscluster instance
-        KMeansClustering kmc = KMeansClustering.setup(DeepLearningCostants.KMEANS_CLUSTER_COUNT, DeepLearningCostants.KMEANS_ITERATION_COUNT,
-                DeepLearningCostants.KMEANS_DISTANCE_FUNCTION);
+        KMeansClustering kmc = KMeansClustering.setup(DeepLearningConstants.KMEANS_CLUSTER_COUNT, DeepLearningConstants.KMEANS_ITERATION_COUNT,
+                DeepLearningConstants.KMEANS_DISTANCE_FUNCTION);
         StopWatch sw = new StopWatch();
 
         //2. iterate over rows in the vector and create a List of vectors
@@ -152,6 +163,134 @@ public class DeepLearningUtils
         return cs;
     }
 
+
+
+
+
+
+
+    public SequenceVectors sequenceVectorModel(String filePath) throws Exception
+    {
+        filePath = "raw_sentences.txt";
+        File file = new File(filePath);
+
+        AbstractCache<VocabWord> vocabCache = new AbstractCache.Builder<VocabWord>().build();
+
+        //First we build line iterator
+        BasicLineIterator underlyingIterator = new BasicLineIterator(file);
+
+        /*
+            Now we need the way to convert lines into Sequences of VocabWords.
+            In this example that's SentenceTransformer
+         */
+        TokenizerFactory tokenizer = new DefaultTokenizerFactory();
+        tokenizer.setTokenPreProcessor(new CommonPreprocessor());
+
+        SentenceTransformer transformer = new SentenceTransformer.Builder()
+                .iterator(underlyingIterator)
+                .tokenizerFactory(tokenizer)
+                .build();
+
+        //And we pack that transformer into AbstractSequenceIterator
+        AbstractSequenceIterator<VocabWord> sequenceIterator = new AbstractSequenceIterator.Builder<>(transformer).build();
+
+        /*
+            Now we should build vocabulary out of sequence iterator.
+            We can skip this phase, and just set AbstractVectors.resetModel(TRUE), and vocabulary will be mastered internally
+        */
+        VocabConstructor<VocabWord> constructor = new VocabConstructor.Builder<VocabWord>()
+                .addSource(sequenceIterator, DeepLearningConstants.MIN_WORD_FREQUENCY)      // Default : 5
+                .setTargetVocabCache(vocabCache)
+                .build();
+
+        constructor.buildJointVocabulary(false, true);
+
+        //Time to build WeightLookupTable instance for our new model
+        WeightLookupTable<VocabWord> lookupTable = new InMemoryLookupTable.Builder<VocabWord>()
+                .vectorLength(DeepLearningConstants.LAYER_SIZE)     // Default : 150
+                .useAdaGrad(false)
+                .cache(vocabCache)
+                .build();
+
+         /*
+             reset model is viable only if you're setting AbstractVectors.resetModel() to false
+             if set to True - it will be called internally
+        */
+        lookupTable.resetWeights(true);
+
+        //Now we can build AbstractVectors model, that suits our needs
+        SequenceVectors<VocabWord> vectors = new SequenceVectors.Builder<VocabWord>(new VectorsConfiguration())
+                // minimum number of occurrences for each element in training corpus. All elements below this value will be ignored
+                // Please note: this value has effect only if resetModel() set to TRUE, for internal model building. Otherwise it'll be ignored, and actual vocabulary content will be used
+                .minWordFrequency(DeepLearningConstants.MIN_WORD_FREQUENCY)      // Default : 5
+
+                // WeightLookupTable
+                .lookupTable(lookupTable)
+
+                // abstract iterator that covers training corpus
+                .iterate(sequenceIterator)
+
+                // vocabulary built prior to modelling
+                .vocabCache(vocabCache)
+
+                // batchSize is the number of sequences being processed by 1 thread at once
+                // this value actually matters if you have iterations > 1
+                .batchSize(DeepLearningConstants.BATCH_SIZE)      // Default : 250
+
+                // number of iterations over batch
+                .iterations(DeepLearningConstants.ITERATION_COUNT)      // Default : 1
+
+                // number of iterations over whole training corpus
+                .epochs(DeepLearningConstants.EPOCHS)      // Default : 1
+
+                // if set to true, vocabulary will be built from scratches internally
+                // otherwise externally provided vocab will be used
+                .resetModel(false)
+
+                //These two methods define our training goals. At least one goal should be set to TRUE.
+                .trainElementsRepresentation(true)
+                .trainSequencesRepresentation(false)
+
+                //Specifies elements learning algorithms. SkipGram, for example.
+                .elementsLearningAlgorithm(new SkipGram<VocabWord>())
+
+                .build();
+
+        //Now, after all options are set, we just call fit()
+        vectors.fit();
+
+        /*
+            As soon as fit() exits, model considered built, and we can test it.
+            Please note: all similarity context is handled via SequenceElement's labels, so if you're using AbstractVectors to build models for complex
+            objects/relations please take care of Labels uniqueness and meaning for yourself.
+         */
+        //double sim = vectors.similarity("day", "night");
+        //log.info("Day/night similarity: " + sim);
+
+        return vectors;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     public void writeWord2VecModelToFile(Word2Vec vec, String filePath)
     {
         try
@@ -166,7 +305,6 @@ public class DeepLearningUtils
 
     public void writeParagraphVecModelToFile(ParagraphVectors vec, String filePath)
     {
-        //WordVectorSerializer.writeParagraphVectors(vec, filePath + ".zip");
-        WordVectorSerializer.writeWordVectors(vec, filePath + ".txt");
+        WordVectorSerializer.writeParagraphVectors(vec, filePath);
     }
 }

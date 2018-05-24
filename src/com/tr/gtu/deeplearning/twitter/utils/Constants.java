@@ -18,7 +18,13 @@ public class Constants
 
     public static List<User> allUsers = new ArrayList<User>();
     public static List<String> labelList = new ArrayList<String>();
-    public static int tweetCountLimit = 8000;
+    public static int tweetCountLimit = 20000;
+
+    public static String inputFile = "";
+    public static String modelFileWord2Vec = "";
+    public static String modelExtentionWord2Vec = ".zip";
+    public static String modelFileParagraphVec = "";
+    public static String modelExtentionParagraphVec = ".zip";
 
     /*
      * MeToo Table
